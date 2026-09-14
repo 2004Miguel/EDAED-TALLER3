@@ -1,0 +1,97 @@
+---
+title: "Taller 2: Auditoría Exploratoria y Perfil del Curso"
+subtitle: " Curso: Estadística Descriptiva y Análisis Exploratorio de Datos (3006927)"
+author: "Miguel Anjel Salazar Jaramillo"
+lang: es
+date: today
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: show
+    code-tools: true
+    df-print: paged
+    embed-resources: true
+knitr:
+  opts_chunk:
+    echo: true
+    warning: false
+    message: false
+    fig.align: "center"
+    fig.width: 7
+    fig.height: 4.5
+---
+
+```{r}
+#| label: configuracion-entorno
+# 1. Verificación, instalación y carga de paquetes. 
+paquetes_requeridos <- c("readxl", "tidyverse", "knitr", "Hmisc")
+
+# installed.packages() devuelve una matriz con todos los paquetes instalados en la máquina
+# installed.packages()[, "Package"] selecciona solo la columna con el nombre de los paquetes
+# paquetes_requeridos %in% installed.packages()[,"Package"] compara cada paquete requerido con los que están instalados. Devuelve TRUE/FALSE según el caso. 
+paquetes_faltantes <- paquetes_requeridos[!(paquetes_requeridos %in% installed.packages()[,"Package"])]
+
+if(length(paquetes_faltantes) > 0) {
+  install.packages(paquetes_faltantes)
+}
+```
+
+
+```{r}
+#| label: carga-paquetes
+# Carga de biblitecas y paquetes esenciales
+library(readxl)
+library(tidyverse)
+library(knitr)
+library(Hmisc)
+```
+
+```{r}
+
+carpeta <- "datos"
+nombres_archivos <- sprintf("Escala_de_Mercalli_%02d.xlsx", 1:45)
+rutas_completas  <- file.path(carpeta, nombres_archivos)
+
+faltantes <- rutas_completas[!file.exists(rutas_completas)]
+if (length(faltantes) > 0) {
+  warning("No se encontraron estos archivos:\n", paste(faltantes, collapse = "\n"))
+}
+
+lista_datos <- lapply(rutas_completas, read_excel)
+names(lista_datos) <- nombres_archivos
+```
+
+```{r}
+#| label: eliminación-filas-archivo12
+
+lista_datos[["Escala_de_Mercalli_12.xlsx"]] <- lista_datos[["Escala_de_Mercalli_12.xlsx"]][-(1:7), ]
+```
+
+```{r}
+dms_a_decimal <- function(grados, minutos, segundos, direccion) {
+  decimal <- grados + minutos/60 + segundos/3600
+  if (direccion %in% c("S", "W")) decimal <- -decimal
+  return(decimal)
+}
+```
+
+```{r}
+for (archivo in names(lista_datos)){
+  if(archivo = "Escala_de_Mercalli_12.xlsx"){
+    
+  }
+  
+}
+```
+
+```{r}
+datoRaro <- read_excel("datos/Escala_de_Mercalli_12.xlsx")
+
+```
+
+```{r}
+glimpse(lista_datos)
+```
