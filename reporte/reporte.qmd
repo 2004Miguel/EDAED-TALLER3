@@ -50,6 +50,9 @@ library(Hmisc)
 ```
 
 ```{r}
+nombre_columnas <- c("longitud", "latitud", "posicion", "actividad", "piso", "reaccion", "solo_mv_repisa", "cosas_cd_repisa", "solo_mv_cuadros", "cuadros_cd", "revoque_rajado", "revoque_caido", "direccion_mv_obj_colga", "averia_paredes", "averia_vigas", "observaciones", "escala_mercalli")
+```
+```{r}
 
 carpeta <- "datos"
 nombres_archivos <- sprintf("Escala_de_Mercalli_%02d.xlsx", 1:45)
@@ -59,39 +62,39 @@ faltantes <- rutas_completas[!file.exists(rutas_completas)]
 if (length(faltantes) > 0) {
   warning("No se encontraron estos archivos:\n", paste(faltantes, collapse = "\n"))
 }
-
 lista_datos <- lapply(rutas_completas, read_excel)
 names(lista_datos) <- nombres_archivos
 ```
 
 ```{r}
-#| label: eliminación-filas-archivo12
+#| label: adicion-eliminacion-columnas-faltantes
 
-lista_datos[["Escala_de_Mercalli_12.xlsx"]] <- lista_datos[["Escala_de_Mercalli_12.xlsx"]][-(1:7), ]
+lista_datos[["Escala_de_Mercalli_02.xlsx"]]$"solo_mv_cuadros" <- NA
+lista_datos[["Escala_de_Mercalli_05.xlsx"]]$"solo_mv_cuadros" <- NA
+lista_datos[["Escala_de_Mercalli_37.xlsx"]]$"solo_mv_cuadros" <- NA
+
+lista_datos[["Escala_de_Mercalli_40.xlsx"]]$"Persona" <- NULL
+lista_datos[["Escala_de_Mercalli_40.xlsx"]]$"Columna1" <- NULL
+
+```
+
+
+```{r}
+#| label: descarte-datasets
+
+# Se elimina este dataset ya que las modificaciones necesarias para convertirlo a la estructura estándar son muy engorrosas y se puede llegar a ejecutar código que no se sabe a ciencia cierta como trabaja. 
+lista_datos[["Escala_de_Mercalli_04.xlsx"]] <- NULL
+
+# Este dataset no tiene nombre de variables (sin encabezados). Es muy difícil saber las respuestas a que variable pertenecen, en ese caso se opta por descatarlo del análisis. 
+lista_datos[["Escala_de_Mercalli_15.xlsx"]] <- NULL
 ```
 
 ```{r}
-dms_a_decimal <- function(grados, minutos, segundos, direccion) {
-  decimal <- grados + minutos/60 + segundos/3600
-  if (direccion %in% c("S", "W")) decimal <- -decimal
-  return(decimal)
-}
+#| label: eliminacion-símbolos
+
+lista_datos[["Escala_de_Mercalli_03.xlsx"]] <- lista_datos[["Escala_de_Mercalli_03.xlsx"]] %>%
+  mutate(columna_limpia = )
 ```
-
-```{r}
-for (archivo in names(lista_datos)){
-  if(archivo = "Escala_de_Mercalli_12.xlsx"){
-    
-  }
-  
-}
-```
-
-```{r}
-datoRaro <- read_excel("datos/Escala_de_Mercalli_12.xlsx")
-
-```
-
 ```{r}
 glimpse(lista_datos)
 ```
