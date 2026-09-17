@@ -47,6 +47,7 @@ library(readxl)
 library(tidyverse)
 library(knitr)
 library(Hmisc)
+library(janitor)
 ```
 
 ```{r}
@@ -69,12 +70,17 @@ names(lista_datos) <- nombres_archivos
 ```{r}
 #| label: adicion-eliminacion-columnas-faltantes
 
+# Se agrega la columna "solo_mv_cuadros" a varios datasets y se llenan las filas con datos de tipo NA
 lista_datos[["Escala_de_Mercalli_02.xlsx"]]$"solo_mv_cuadros" <- NA
 lista_datos[["Escala_de_Mercalli_05.xlsx"]]$"solo_mv_cuadros" <- NA
 lista_datos[["Escala_de_Mercalli_37.xlsx"]]$"solo_mv_cuadros" <- NA
 
+# Se eliminan las columnas "Persona" y "Columna1" que sobraban en los datasets. 
 lista_datos[["Escala_de_Mercalli_40.xlsx"]]$"Persona" <- NULL
 lista_datos[["Escala_de_Mercalli_40.xlsx"]]$"Columna1" <- NULL
+
+# Este dataset tenía 16 columnas. Se logró identificar la columna faltante y agregarla para que cumpla con la estructura establecida de 17 campos. Se agrega la columna "observaciones" en el penúltimo lugar y las observaciones se llenan con datos de tipo NA.
+lista_datos[["Escala_de_Mercalli_15.xlsx"]] <- lista_datos[["Escala_de_Mercalli_15.xlsx"]] %>% add_column(observaciones=NA, .before=ncol(lista_datos[["Escala_de_Mercalli_15.xlsx"]]))
 
 ```
 
@@ -84,17 +90,29 @@ lista_datos[["Escala_de_Mercalli_40.xlsx"]]$"Columna1" <- NULL
 
 # Se elimina este dataset ya que las modificaciones necesarias para convertirlo a la estructura estándar son muy engorrosas y se puede llegar a ejecutar código que no se sabe a ciencia cierta como trabaja. 
 lista_datos[["Escala_de_Mercalli_04.xlsx"]] <- NULL
-
-# Este dataset no tiene nombre de variables (sin encabezados). Es muy difícil saber las respuestas a que variable pertenecen, en ese caso se opta por descatarlo del análisis. 
-lista_datos[["Escala_de_Mercalli_15.xlsx"]] <- NULL
 ```
 
 ```{r}
-#| label: eliminacion-símbolos
-
-lista_datos[["Escala_de_Mercalli_03.xlsx"]] <- lista_datos[["Escala_de_Mercalli_03.xlsx"]] %>%
-  mutate(columna_limpia = )
+#| label: estandarización-nombre de campos
+lista_datos <- lapply(lista_datos, setNames, nombre_columnas)
 ```
+
 ```{r}
-glimpse(lista_datos)
+#| label: estandarización - tipo de dato
+
+library(dplyr)
+
+# Se convierten todas las columnas de todos los datasets a tipo texto
+lista_datos <- lapply(lista_datos, function(df) {
+  # Nos aseguramos de que sea un data frame y convertimos todo a caracter
+  as.data.frame(df) %>% 
+    mutate(across(everything(), as.character))
+})
+
+# Se unen en un solo dataset
+dataset_final <- bind_rows(lista_datos, .id = "archivo_origen")
+```
+
+```{r}
+str(dataset_final)
 ```
