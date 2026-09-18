@@ -120,9 +120,70 @@ dataset_final <- bind_rows(lista_datos, .id = "archivo_origen")
 ```
 
 ```{r}
+#| label: limpieza caracteres no numéricos en las coordenadas
+
+# 1. Crear la función de conversión
+convertir_gms_a_decimal <- function(coordenadas) {
+  # Patrón para capturar: (Grados)°(Minutos)'(Segundos)''(Dirección)
+  # Funciona tanto con dos comillas simples ('') como con una doble (")
+  patron <- "([0-9]+)°([0-9]+)'([0-9.]+)(?:''|\")([NESW])"
+  
+  # Extraer los componentes usando stringr
+  coincidencias <- stringr::str_match(coordenadas, patron)
+  
+  grados <- as.numeric(coincidencias[, 2])
+  minutos <- as.numeric(coincidencias[, 3])
+  segundos <- as.numeric(coincidencias[, 4])
+  direccion <- coincidencias[, 5]
+  
+  # Aplicar la fórmula
+  decimales <- grados + (minutos / 60) + (segundos / 3600)
+  
+  # Aplicar signo negativo si es Sur (S) u Oeste (W)
+  decimales <- ifelse(direccion %in% c("S", "W"), decimales * -1, decimales)
+  
+  # Si la coordenada no tenía este formato GMS (ej. ya era decimal), mantenerla como estaba
+  decimales <- ifelse(is.na(decimales), as.numeric(coordenadas), decimales)
+  
+  return(decimales)
+}
+
+# 2. Aplicar la función a tu dataset_final
+dataset_final <- dataset_final %>%
+  mutate(
+    longitud = convertir_gms_a_decimal(longitud),
+    latitud = convertir_gms_a_decimal(latitud)
+  )
+```
+
+```{r}
+#| label: correción coordenadas
+
+dataset_final <- dataset_final %>%
+  # 1. Crear columnas numéricas temporales para evaluar la condición matemática
+  mutate(
+    num_lon = as.numeric(longitud),
+    num_lat = as.numeric(latitud)
+  ) %>%
+  # 2. Aplicar la condición fila por fila
+  mutate(
+    # Si la longitud es positiva (>0) y la latitud es negativa (<0), se intercambian.
+    # De lo contrario, conservan su valor original.
+    longitud_corregida = ifelse(num_lon > 0 & num_lat < 0, latitud, longitud),
+    latitud_corregida = ifelse(num_lon > 0 & num_lat < 0, longitud, latitud)
+  ) %>%
+  # 3. Sobrescribir las columnas originales y eliminar las variables temporales
+  mutate(
+    longitud = longitud_corregida,
+    latitud = latitud_corregida
+  ) %>%
+  select(-num_lon, -num_lat, -longitud_corregida, -latitud_corregida)
+```
+
+```{r}
 lapply(dataset_final, unique)
 
 dataset_final %>%
-  filter(longitud == "Persona 3") %>%
+  filter(longitud == "6°14'59.72\"N") %>%
   select(archivo_origen, longitud)
 ```
