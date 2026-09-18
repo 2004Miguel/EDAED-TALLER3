@@ -51,10 +51,11 @@ library(janitor)
 ```
 
 ```{r}
+#| label: estándar de columnas
 nombre_columnas <- c("longitud", "latitud", "posicion", "actividad", "piso", "reaccion", "solo_mv_repisa", "cosas_cd_repisa", "solo_mv_cuadros", "cuadros_cd", "revoque_rajado", "revoque_caido", "direccion_mv_obj_colga", "averia_paredes", "averia_vigas", "observaciones", "escala_mercalli")
 ```
 ```{r}
-
+#| label: importación-datos
 carpeta <- "datos"
 nombres_archivos <- sprintf("Escala_de_Mercalli_%02d.xlsx", 1:45)
 rutas_completas  <- file.path(carpeta, nombres_archivos)
@@ -82,6 +83,11 @@ lista_datos[["Escala_de_Mercalli_40.xlsx"]]$"Columna1" <- NULL
 # Este dataset tenía 16 columnas. Se logró identificar la columna faltante y agregarla para que cumpla con la estructura establecida de 17 campos. Se agrega la columna "observaciones" en el penúltimo lugar y las observaciones se llenan con datos de tipo NA.
 lista_datos[["Escala_de_Mercalli_15.xlsx"]] <- lista_datos[["Escala_de_Mercalli_15.xlsx"]] %>% add_column(observaciones=NA, .before=ncol(lista_datos[["Escala_de_Mercalli_15.xlsx"]]))
 
+lista_datos[["Escala_de_Mercalli_13.xlsx"]][[1]] <- NULL
+lista_datos[["Escala_de_Mercalli_13.xlsx"]] <- lista_datos[["Escala_de_Mercalli_13.xlsx"]] %>% add_column(revoque_cd=NA, .after="¿Se rajó el revoque?")
+
+lista_datos[["Escala_de_Mercalli_32.xlsx"]][[1]] <- NULL
+lista_datos[["Escala_de_Mercalli_32.xlsx"]] <- lista_datos[["Escala_de_Mercalli_32.xlsx"]] %>% add_column(cuadros_mv=NA, .after="Se cayeron cosas de la repisas")
 ```
 
 
@@ -114,5 +120,9 @@ dataset_final <- bind_rows(lista_datos, .id = "archivo_origen")
 ```
 
 ```{r}
-str(dataset_final)
+lapply(dataset_final, unique)
+
+dataset_final %>%
+  filter(longitud == "Persona 3") %>%
+  select(archivo_origen, longitud)
 ```
