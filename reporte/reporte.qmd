@@ -48,15 +48,25 @@ library(tidyverse)
 library(knitr)
 library(Hmisc)
 library(janitor)
+library(here)
+library(purrr)
 ```
 
 ```{r}
 #| label: estándar de columnas
-nombre_columnas <- c("longitud", "latitud", "posicion", "actividad", "piso", "reaccion", "solo_mv_repisa", "cosas_cd_repisa", "solo_mv_cuadros", "cuadros_cd", "revoque_rajado", "revoque_caido", "direccion_mv_obj_colga", "averia_paredes", "averia_vigas", "observaciones", "escala_mercalli")
+#nombre_columnas <- c("longitud", "latitud", "posicion", "actividad", "piso", "reaccion", "solo_mv_repisa", "cosas_cd_repisa", #"solo_mv_cuadros", "cuadros_cd", "revoque_rajado", "revoque_caido", "direccion_mv_obj_colga", "averia_paredes", #"averia_vigas", "observaciones", "escala_mercalli")
+
+nombre_columnas <- c(
+  "longitud", "latitud", "posicion", "actividad", "piso", "reaccion", 
+  "solo_mv_repisa", "cosas_cd_repisa", "solo_mv_cuadros", "cuadros_cd", 
+  "revoque_rajado", "revoque_caido", "direccion_mv_obj_colga", 
+  "averia_paredes", "averia_vigas", "observaciones", "escala_mercalli"
+)
 ```
+
 ```{r}
 #| label: importación-datos
-carpeta <- "datos"
+carpeta <- "../datos"
 nombres_archivos <- sprintf("Escala_de_Mercalli_%02d.xlsx", 1:45)
 rutas_completas  <- file.path(carpeta, nombres_archivos)
 
@@ -83,6 +93,8 @@ lista_datos[["Escala_de_Mercalli_40.xlsx"]]$"Columna1" <- NULL
 # Este dataset tenía 16 columnas. Se logró identificar la columna faltante y agregarla para que cumpla con la estructura establecida de 17 campos. Se agrega la columna "observaciones" en el penúltimo lugar y las observaciones se llenan con datos de tipo NA.
 lista_datos[["Escala_de_Mercalli_15.xlsx"]] <- lista_datos[["Escala_de_Mercalli_15.xlsx"]] %>% add_column(observaciones=NA, .before=ncol(lista_datos[["Escala_de_Mercalli_15.xlsx"]]))
 
+colnames(lista_datos[["Escala_de_Mercalli_15.xlsx"]]) <- nombre_columnas
+
 lista_datos[["Escala_de_Mercalli_13.xlsx"]][[1]] <- NULL
 lista_datos[["Escala_de_Mercalli_13.xlsx"]] <- lista_datos[["Escala_de_Mercalli_13.xlsx"]] %>% add_column(revoque_cd=NA, .after="¿Se rajó el revoque?")
 
@@ -90,12 +102,44 @@ lista_datos[["Escala_de_Mercalli_32.xlsx"]][[1]] <- NULL
 lista_datos[["Escala_de_Mercalli_32.xlsx"]] <- lista_datos[["Escala_de_Mercalli_32.xlsx"]] %>% add_column(cuadros_mv=NA, .after="Se cayeron cosas de la repisas")
 ```
 
-
 ```{r}
 #| label: descarte-datasets
 
 # Se elimina este dataset ya que las modificaciones necesarias para convertirlo a la estructura estándar son muy engorrosas y se puede llegar a ejecutar código que no se sabe a ciencia cierta como trabaja. 
 lista_datos[["Escala_de_Mercalli_04.xlsx"]] <- NULL
+```
+
+```{r}
+estandarizar_columnas <- function(df) {
+  df %>%
+    # clean_names() elimina tildes, signos (¿?) y pasa todo a minúsculas con guiones bajos.
+    # Esto resuelve automáticamente problemas como los \r\n o los espacios extra.
+    clean_names() %>% 
+    
+    # Estandarizar cada columna atrapando sus variaciones mediante patrones regex
+    rename_with(~ "longitud", matches("longitud")) %>%
+    rename_with(~ "latitud", matches("latitud")) %>%
+    rename_with(~ "posicion", matches("posicion")) %>%
+    rename_with(~ "actividad", matches("actividad")) %>%
+    rename_with(~ "piso", matches("^piso")) %>%
+    rename_with(~ "reaccion", matches("reaccion")) %>%
+    rename_with(~ "solo_mv_repisa", matches("solo_.*repisa|solo_mv_repisa")) %>%
+    rename_with(~ "cayeron_cosas_repisa", matches("cayeron_.*repisa|cosas_cd_repisa")) %>%
+    rename_with(~ "solo_mv_cuadros", matches("solo_.*cuadros|solo_mv_cuadros|cuadros_mv")) %>%
+    rename_with(~ "cayeron_cuadros", matches("cayeron_cuadros|cuadros_cd")) %>%
+    rename_with(~ "revoque_rajado", matches("raj.*revoque|revoque_rajado")) %>%
+    rename_with(~ "revoque_caido", matches("cay.*revoque|revoque_cd|revoque_caido")) %>%
+    rename_with(~ "direccion_mv_objetos", matches("direccion.*objetos|direccion_mv_obj")) %>%
+    rename_with(~ "danos_paredes", matches("paredes|averia_paredes")) %>%
+    rename_with(~ "danos_vigas", matches("columnas|averia_vigas")) %>%
+    rename_with(~ "observaciones", matches("observaciones|obervaciones")) %>%
+    rename_with(~ "escala_mercalli", matches("mercalli")) %>%
+    
+    # 3. Forzar exactamente el mismo orden en todos y descartar columnas extra accidentales
+    select(all_of(nombre_columnas))
+}
+
+lista_datasets_limpios <- map(lista_datos, estandarizar_columnas)
 ```
 
 ```{r}
@@ -181,9 +225,125 @@ dataset_final <- dataset_final %>%
 ```
 
 ```{r}
+#| label: eliminación coordenadas externas al valle de aburra
+
+#| label: filtro-valle-aburra
+
+dataset_final <- dataset_final %>%
+  mutate(
+    # Se fuerza la conversión a numérico para evaluar los rangos matemáticamente
+    longitud = as.numeric(longitud),
+    latitud = as.numeric(latitud)
+  ) %>%
+  filter(
+    latitud >= 6.09 & latitud <= 6.45,
+    longitud >= -75.65 & longitud <= -75.33
+  )
+```
+
+```{r}
+#| label: estandarizacion-posicion
+
+dataset_final <- dataset_final %>%
+  mutate(
+    # 1. Convertimos todo a minúsculas para reducir duplicados por ortografía
+    posicion = tolower(posicion),
+    
+    # 2. Agrupamos los sinónimos y variaciones de género en categorías únicas
+    posicion = case_when(
+      posicion %in% c("acostado", "acostada") ~ "acostado",
+      posicion %in% c("parado", "parada") ~ "parado",
+      posicion %in% c("sentado", "sentada") ~ "sentado",
+      # Mantenemos las demás categorías ("en un transporte", "en el baño") tal como están
+      TRUE ~ posicion 
+    )
+  )
+```
+
+```{r}
+#| label: estandarizacion-actividad
+
+dataset_final <- dataset_final %>%
+  mutate(
+    # 1. Convertimos todo a minúsculas (esto arregla inmediatamente 
+    # "Durmiendo", "Descansando", "Trabajando", "Estudiando", "Viendo videos", etc.)
+    actividad = tolower(actividad),
+    
+    # 2. Agrupamos variaciones, sinónimos y corregimos errores tipográficos
+    actividad = case_when(
+      actividad %in% c("durmiendo", "dormir", "dormido") ~ "durmiendo",
+      actividad %in% c("estudiando", "estudiar", "haciendo tareas") ~ "estudiando",
+      actividad %in% c("bañandose", "bañarse", "cepillandome") ~ "aseo personal",
+      actividad == "sando al perro" ~ "paseando al perro",
+      actividad == "haciendo ejercicio en mi unidad" ~ "haciendo ejercicio",
+      
+      # Las demás categorías que ya están bien en minúsculas se mantienen igual:
+      # "trabajando", "descansando", "caminando", "comiendo", "cocinando", 
+      # "viendo videos", "organizando", "conduciendo"
+      TRUE ~ actividad 
+    )
+  )
+```
+
+```{r}
+#| label: cambio de dato de piso
+
+dataset_final <- dataset_final %>% 
+  mutate(piso=as.numeric(piso))
+```
+
+```{r}
+#| label: estandarizacion-reaccion
+
+dataset_final <- dataset_final %>%
+  mutate(
+    # 1. Convertimos a minúsculas
+    reaccion = tolower(reaccion),
+    
+    # 2. Clasificamos buscando palabras clave dentro de cada respuesta
+    reaccion = case_when(
+      # Si la respuesta contiene "corriendo", se asigna a esta categoría
+      str_detect(reaccion, "corriendo") ~ "evacuó corriendo",
+      
+      # Si contiene "caminando"
+      str_detect(reaccion, "caminando") ~ "evacuó caminando",
+      
+      # Si salieron pero no especificaron cómo (atrapa variaciones de salir a la calle/evacuar)
+      str_detect(reaccion, "evacu|salí del edificio|sali del edificio|salio del edificio|a la calle") ~ "evacuó (sin especificar)",
+      
+      # Personas que no evacuaron o se quedaron donde estaban
+      str_detect(reaccion, "quieto|tranquilo|esperando|ninguna|en el edifcio") ~ "se quedó en el sitio",
+      
+      # Reacciones relacionadas con vehículos
+      str_detect(reaccion, "bajé del veh") ~ "evacuó del vehículo",
+      str_detect(reaccion, "quedé en el veh|conduciendo") ~ "se quedó en el vehículo",
+      
+      # Personas que se movieron a otras partes de la estructura
+      str_detect(reaccion, "plancha|balcon") ~ "se desplazó dentro del edificio",
+      
+      # Personas que ya estaban afuera
+      str_detect(reaccion, "estaba en la calle") ~ "ya estaba en la calle",
+      
+      # Por si aparece un dato nuevo que no contemplamos, lo deja como está
+      TRUE ~ reaccion 
+    )
+  )
+```
+
+```{r}
+lista_datos
 lapply(dataset_final, unique)
 
 dataset_final %>%
   filter(longitud == "6°14'59.72\"N") %>%
   select(archivo_origen, longitud)
+
+
+# 1. Auditoría visual de columnas con janitor
+comparacion_columnas <- janitor::compare_df_cols(lista_datos)
+
+# Esto abrirá una pestaña en RStudio tipo Excel para ver fácilmente los vacíos (NAs)
+View(comparacion_columnas)
+
+lapply(lista_datos, names)
 ```
