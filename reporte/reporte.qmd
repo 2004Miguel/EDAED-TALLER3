@@ -66,7 +66,7 @@ nombre_columnas <- c(
 
 ```{r}
 #| label: importación-datos
-carpeta <- "../datos"
+carpeta <- "datos"
 nombres_archivos <- sprintf("Escala_de_Mercalli_%02d.xlsx", 1:45)
 rutas_completas  <- file.path(carpeta, nombres_archivos)
 
@@ -110,36 +110,47 @@ lista_datos[["Escala_de_Mercalli_04.xlsx"]] <- NULL
 ```
 
 ```{r}
+#| label: estandarización-nombre-de-campos
+
 estandarizar_columnas <- function(df) {
-  df %>%
-    # clean_names() elimina tildes, signos (¿?) y pasa todo a minúsculas con guiones bajos.
-    # Esto resuelve automáticamente problemas como los \r\n o los espacios extra.
-    clean_names() %>% 
+  df_temp <- df %>%
+    rename_with(~ "longitud", matches("longitud", ignore.case = TRUE)) %>%
+    rename_with(~ "latitud", matches("latitud", ignore.case = TRUE)) %>%
+    rename_with(~ "posicion", matches("posici.n|posicion", ignore.case = TRUE)) %>%
+    rename_with(~ "actividad", matches("actividad", ignore.case = TRUE)) %>%
+    rename_with(~ "piso", matches("^piso", ignore.case = TRUE)) %>%
+    rename_with(~ "reaccion", matches("reacci.n|reaccion", ignore.case = TRUE)) %>%
     
-    # Estandarizar cada columna atrapando sus variaciones mediante patrones regex
-    rename_with(~ "longitud", matches("longitud")) %>%
-    rename_with(~ "latitud", matches("latitud")) %>%
-    rename_with(~ "posicion", matches("posicion")) %>%
-    rename_with(~ "actividad", matches("actividad")) %>%
-    rename_with(~ "piso", matches("^piso")) %>%
-    rename_with(~ "reaccion", matches("reaccion")) %>%
-    rename_with(~ "solo_mv_repisa", matches("solo_.*repisa|solo_mv_repisa")) %>%
-    rename_with(~ "cayeron_cosas_repisa", matches("cayeron_.*repisa|cosas_cd_repisa")) %>%
-    rename_with(~ "solo_mv_cuadros", matches("solo_.*cuadros|solo_mv_cuadros|cuadros_mv")) %>%
-    rename_with(~ "cayeron_cuadros", matches("cayeron_cuadros|cuadros_cd")) %>%
-    rename_with(~ "revoque_rajado", matches("raj.*revoque|revoque_rajado")) %>%
-    rename_with(~ "revoque_caido", matches("cay.*revoque|revoque_cd|revoque_caido")) %>%
-    rename_with(~ "direccion_mv_objetos", matches("direccion.*objetos|direccion_mv_obj")) %>%
-    rename_with(~ "danos_paredes", matches("paredes|averia_paredes")) %>%
-    rename_with(~ "danos_vigas", matches("columnas|averia_vigas")) %>%
-    rename_with(~ "observaciones", matches("observaciones|obervaciones")) %>%
-    rename_with(~ "escala_mercalli", matches("mercalli")) %>%
+    # AJUSTE: Cambiamos 'solo' por 'movi' para cubrir el Dataset 41
+    rename_with(~ "solo_mv_repisa", matches("movi.*repisa|solo_mv_repisa", ignore.case = TRUE)) %>%
+    rename_with(~ "cosas_cd_repisa", matches("caye.*repisa|cosas_cd_repisa", ignore.case = TRUE)) %>%
     
-    # 3. Forzar exactamente el mismo orden en todos y descartar columnas extra accidentales
-    select(all_of(nombre_columnas))
+    # AJUSTE: Cambiamos 'solo' por 'movi' para cubrir el Dataset 41
+    rename_with(~ "solo_mv_cuadros", matches("movi.*cuadro|solo_mv_cuadros|cuadros_mv", ignore.case = TRUE)) %>%
+    rename_with(~ "cuadros_cd", matches("caye.*cuadro|cuadros_cd", ignore.case = TRUE)) %>%
+    
+    rename_with(~ "revoque_rajado", matches("raj.*revoque|revoque_rajado", ignore.case = TRUE)) %>%
+    rename_with(~ "revoque_caido", matches("cay.*revoque|revoque_cd|revoque_caido", ignore.case = TRUE)) %>%
+    rename_with(~ "direccion_mv_obj_colga", matches("direcci.n|direccion.*objeto|direccion_mv_obj", ignore.case = TRUE)) %>%
+    rename_with(~ "averia_paredes", matches("paredes|averia_paredes", ignore.case = TRUE)) %>%
+    rename_with(~ "averia_vigas", matches("columnas|vigas|averia_vigas", ignore.case = TRUE)) %>%
+    rename_with(~ "observaciones", matches("observaci|obervaci", ignore.case = TRUE)) %>%
+    rename_with(~ "escala_mercalli", matches("mercalli|grado", ignore.case = TRUE)) 
+  
+  df_temp <- df_temp %>% select(any_of(nombre_columnas))
+  
+  faltantes <- setdiff(nombre_columnas, names(df_temp))
+  
+  if(length(faltantes) > 0) {
+    df_temp[faltantes] <- NA
+  }
+  
+  df_temp <- df_temp %>% select(all_of(nombre_columnas))
+  
+  return(df_temp)
 }
 
-lista_datasets_limpios <- map(lista_datos, estandarizar_columnas)
+lista_datos <- map(lista_datos, estandarizar_columnas)
 ```
 
 ```{r}
