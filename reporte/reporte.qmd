@@ -388,8 +388,243 @@ dataset_final <- dataset_final %>%
 ```
 
 ```{r}
+#| label: estandarización-columnas si/no
+
+columnas_limpiar <- c("solo_mv_repisa", "cosas_cd_repisa", "solo_mv_cuadros", "cuadros_cd", "revoque_rajado", "revoque_caido")
+
+dataset_final <- dataset_final %>%
+  mutate(
+    across(all_of(columnas_limpiar), ~ {
+      # Pasamos el valor actual a minúsculas
+      valor <- tolower(.x) 
+      
+      # Aplicamos las reglas de estandarización
+      case_when(
+        valor == "no hay" ~ "no",
+        valor == "si, no" ~ "si",
+        valor == "p"      ~ NA_character_,
+        valor == "sí" ~ "si",
+        TRUE              ~ valor # Mantiene lo que ya está bien
+      )
+    })
+  )
+
+```
+
+```{r}
+#| label: estandarización-direccion_mv_obj_colga
+
+
+# Minúsculas, sin tildes y sin espacios repetidos.
+# "No sé pudo  determinar" -> "no se pudo determinar"
+normalizar_texto <- function(texto) {
+  texto |>
+    str_to_lower() |>
+    stringi::stri_trans_general("Latin-ASCII") |>
+    str_squish()
+}
+ 
+direcciones_cardinales <- c(
+  "norte", "sur", "este", "oeste",
+  "noreste", "noroeste", "sureste", "suroeste"
+)
+ 
+# Categorías resultantes:
+#   8 direcciones cardinales, "norte-sur", "este-oeste", "varias_direcciones",
+#   "no_determinado", NA (sin dato) y "sin_clasificar" (valor nuevo por revisar)
+estandarizar_direccion_mv <- function(direccion) {
+  texto <- normalizar_texto(direccion)
+ 
+  oscilacion_norte_sur <- c("norte, sur", "sur, norte", "norte-sur", "sur-norte")
+  oscilacion_este_oeste <- c(
+    "este, oeste", "oeste, este", "oeste y este", "este y oeste",
+    "de este a oeste", "de oeste a este"
+  )
+  movimiento_en_varias_direcciones <- c("norte, sur, este", "para todos los lados")
+  respuestas_sin_direccion_clara <- c(
+    "no tiene certeza",
+    "derecha a izquierda",  # es relativa al observador, no cardinal
+    "oscilacion leve, sin direccion predominante claramente identificada"
+  )
+ 
+  case_when(
+    is.na(texto) ~ NA_character_,
+ 
+    # Texto del encabezado del formulario (archivo 38) pegado como si fuera respuesta
+    str_starts(texto, "norte, sur, este, oeste, noreste") ~ NA_character_,
+ 
+    # No es una dirección
+    texto == "no hubo danos" ~ NA_character_,
+ 
+    texto %in% direcciones_cardinales ~ texto,
+    texto %in% oscilacion_norte_sur ~ "norte-sur",
+    texto %in% oscilacion_este_oeste ~ "este-oeste",
+    texto %in% movimiento_en_varias_direcciones ~ "varias_direcciones",
+ 
+    # "no se pudo determinar", "no se pudo determinar movimiento", "no se puedo determinar"...
+    str_detect(texto, "^no se (pudo|puedo) determinar") ~ "no_determinado",
+    texto %in% respuestas_sin_direccion_clara ~ "no_determinado",
+ 
+    .default = "sin_clasificar"
+  )
+}
+
+dataset_final <- dataset_final |>
+  mutate(direccion_mv_obj_colga = estandarizar_direccion_mv(direccion_mv_obj_colga))
+
+```
+
+```{r}
+#| label: estandarización-averia_paredes
+
+# Minúsculas, sin tildes y sin espacios repetidos.
+normalizar_texto <- function(texto) {
+  texto |>
+    str_to_lower() |>
+    stringi::stri_trans_general("Latin-ASCII") |>
+    str_squish()
+}
+ 
+# Escala ordinal de menor a mayor daño (son las opciones del formulario):
+#   no_hubo_danos < danos_leves < danos_visibles < colapso_o_caida
+# Otras categorías:
+#   danos_sin_especificar: dice que hubo daño pero no su gravedad
+#   NA: sin dato
+#   sin_clasificar: valor nuevo por revisar
+estandarizar_averia_paredes <- function(averia) {
+  texto <- normalizar_texto(averia)
+ 
+  sin_danos <- c("no hubo danos", "ninguno", "ningun dano", "no")
+  danos_leves <- c("danos leves", "pocos danos", "grietas en las paredes (nada graves)")
+  danos_visibles <- c("danos visibles")
+  colapso_o_caida <- c("colapso", "caida", "colapso o caida")
+  danos_sin_gravedad <- c("si", "danos en las paredes")
+ 
+  case_when(
+    is.na(texto) ~ NA_character_,
+ 
+    # Lista de opciones del formulario pegada como si fuera respuesta
+    str_starts(texto, "no hubo danos, danos leves") ~ NA_character_,
+ 
+    texto %in% sin_danos ~ "no_hubo_danos",
+    texto %in% danos_leves ~ "danos_leves",
+    texto %in% danos_visibles ~ "danos_visibles",
+    texto %in% colapso_o_caida ~ "colapso_o_caida",
+    texto %in% danos_sin_gravedad ~ "danos_sin_especificar",
+ 
+    .default = "sin_clasificar"
+  )
+}
+
+dataset_final <- dataset_final |>
+  mutate(averia_paredes = estandarizar_averia_paredes(averia_paredes))
+
+```
+
+```{r}
+#| label: estandarización-averia_vigas
+
+# Minúsculas, sin tildes y sin espacios repetidos.
+normalizar_texto <- function(texto) {
+  texto |>
+    str_to_lower() |>
+    stringi::stri_trans_general("Latin-ASCII") |>
+    str_squish()
+}
+ 
+# Categorías resultantes (nominales: describen DÓNDE hubo daño, no cuánto):
+#   no_hubo_danos, danos_en_columnas, danos_en_vigas, danos_en_ambas,
+#   no_tiene_vigas_ni_columnas   (la evaluación no aplica a esa construcción)
+#   danos_sin_especificar        (hubo daño, pero no dice en qué elemento)
+#   NA                           (sin dato)
+#   sin_clasificar               (valor nuevo por revisar)
+estandarizar_averia_vigas <- function(averia) {
+  texto <- normalizar_texto(averia)
+ 
+  danos_en_columnas <- c("danos en columnas", "dano en columnas", "danos en columna", "dano en columna")
+  danos_en_vigas <- c("danos en vigas", "dano en vigas", "danos en viga", "dano en viga")
+  danos_en_ambas <- c("danos en ambas", "dano en ambas", "danos en ambos", "dano en ambos")
+  danos_sin_elemento <- c("si", "poco dano", "pocos danos")
+ 
+  case_when(
+    is.na(texto) ~ NA_character_,
+ 
+    # Lista de opciones del formulario pegada como si fuera respuesta.
+    # Debe ir primero: empieza con "ningun dano" y se confundiría con la primera categoría.
+    str_starts(texto, "ningun dano, danos en columnas") ~ NA_character_,
+ 
+    # "ningun dano", "ningún daño visible", "Nigun daño" (con error de escritura)
+    str_detect(texto, "^(ningun|nigun) dano") ~ "no_hubo_danos",
+    texto %in% c("no", "ninguno", "no hubo danos") ~ "no_hubo_danos",
+ 
+    str_detect(texto, "no tiene vigas ni columnas") ~ "no_tiene_vigas_ni_columnas",
+ 
+    texto %in% danos_en_columnas ~ "danos_en_columnas",
+    texto %in% danos_en_vigas ~ "danos_en_vigas",
+    texto %in% danos_en_ambas ~ "danos_en_ambas",
+    texto %in% danos_sin_elemento ~ "danos_sin_especificar",
+ 
+    .default = "sin_clasificar"
+  )
+}
+dataset_final <- dataset_final |>
+  mutate(averia_vigas = estandarizar_averia_vigas(averia_vigas))
+```
+
+```{r}
+#| label: estandarización-esacala_mercalli
+
+niveles_mercalli <- c(
+  "I", "II", "III", "IV", "V", "VI",
+  "VII", "VIII", "IX", "X", "XI", "XII"
+)
+ 
+# Devuelve el grado en números romanos y mayúscula (I a XII).
+# Otras salidas:
+#   "IV-V"         rango entre dos grados válidos (se conserva, no se elige uno)
+#   NA             sin dato, o texto de instrucciones pegado como respuesta
+#   sin_clasificar valor nuevo por revisar
+estandarizar_escala_mercalli <- function(escala) {
+  texto <- escala |>
+    str_to_upper() |>
+    str_remove_all("\\s+") |>
+    # La "L" es una "I" mal escrita ("Vl" = "VI", "Vll" = "VII"); en esta escala
+    # no existe el grado L (50), así que el reemplazo es seguro.
+    str_replace_all("L", "I") |>
+    na_if("")
+ 
+  # Rangos como "IV-V", "IV - V", "IV–V" o "IV/V"
+  partes_rango <- str_match(texto, "^([IVX]+)[-\\u2013/]([IVX]+)$")
+  extremo_inferior <- partes_rango[, 2]
+  extremo_superior <- partes_rango[, 3]
+  es_rango_valido <- extremo_inferior %in% niveles_mercalli &
+                     extremo_superior %in% niveles_mercalli
+ 
+  case_when(
+    is.na(texto) ~ NA_character_,
+ 
+    # Texto de instrucciones del formulario ("I, II, III hasta XII") pegado como respuesta
+    str_detect(texto, "HASTA") ~ NA_character_,
+ 
+    texto %in% niveles_mercalli ~ texto,
+    es_rango_valido ~ str_c(extremo_inferior, "-", extremo_superior),
+ 
+    .default = "sin_clasificar"
+  )
+}
+
+dataset_final <- dataset_final |>
+  mutate(escala_mercalli = estandarizar_escala_mercalli(escala_mercalli))
+
+```
+
+```{r}
 lista_datos
 
 lapply(dataset_final, unique)
+
+dataset_final %>% filter(archivo_origen="Escala_de_Mercalli_23.xlsx")
+dataset_final |>
+  filter(direccion_mv_obj_colga == "sin_clasificar")
 
 ```
