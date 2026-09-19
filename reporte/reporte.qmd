@@ -187,82 +187,116 @@ dataset_final <- bind_rows(lista_datos, .id = "archivo_origen")
 ```
 
 ```{r}
-#| label: limpieza caracteres no numéricos en las coordenadas
+#| label: conversión a coordenadas decimales
 
-# 1. Crear la función de conversión
-convertir_gms_a_decimal <- function(coordenadas) {
-  # Patrón para capturar: (Grados)°(Minutos)'(Segundos)''(Dirección)
-  # Funciona tanto con dos comillas simples ('') como con una doble (")
-  patron <- "([0-9]+)°([0-9]+)'([0-9.]+)(?:''|\")([NESW])"
-  
-  # Extraer los componentes usando stringr
-  coincidencias <- stringr::str_match(coordenadas, patron)
-  
-  grados <- as.numeric(coincidencias[, 2])
-  minutos <- as.numeric(coincidencias[, 3])
-  segundos <- as.numeric(coincidencias[, 4])
-  direccion <- coincidencias[, 5]
-  
-  # Aplicar la fórmula
-  decimales <- grados + (minutos / 60) + (segundos / 3600)
-  
-  # Aplicar signo negativo si es Sur (S) u Oeste (W)
-  decimales <- ifelse(direccion %in% c("S", "W"), decimales * -1, decimales)
-  
-  # Si la coordenada no tenía este formato GMS (ej. ya era decimal), mantenerla como estaba
-  decimales <- ifelse(is.na(decimales), as.numeric(coordenadas), decimales)
-  
-  return(decimales)
+# 1. Grados, minutos y segundos (GMS) -> grados decimales
+#    Reconoce, por ejemplo: 6°14'59.72"N   77°34'29.23"W
+#    Devuelve NA cuando el texto no tiene formato GMS.
+
+convertir_gms_a_decimal <- function(texto) {
+  patron_gms <- r"--(^(-)?(\d{1,3})\s*[\u00b0\u00ba]\s*(\d{1,2})\s*['\u2032]\s*(\d{1,2}(?:\.\d+)?)\s*(?:"|\u2033|'')?\s*([NSEWO])?$)--"
+ 
+  partes <- str_match(str_to_upper(texto), patron_gms)
+ 
+  signo_explicito <- !is.na(partes[, 2])
+  grados          <- as.numeric(partes[, 3])
+  minutos         <- as.numeric(partes[, 4])
+  segundos        <- as.numeric(partes[, 5])
+  hemisferio      <- partes[, 6]
+ 
+  valor_decimal <- grados + minutos / 60 + segundos / 3600
+ 
+  # Sur y Oeste (W en inglés, O en español) son negativos
+  es_negativo <- signo_explicito | hemisferio %in% c("S", "W", "O")
+  if_else(es_negativo, -valor_decimal, valor_decimal)
+}
+ 
+# 2. Texto con formato decimal "sucio" -> número
+#    Corrige: símbolos (°, paréntesis, espacios),
+#    coma o espacio como separador decimal, notación científica dañada
+#    (6.25E+16) y números a los que se les perdió el punto decimal.
+
+convertir_texto_a_decimal <- function(texto) {
+  limpio <- texto |>
+    str_replace_all("[\\u2212\\u2013\\u2014]", "-") |>  # menos unicode -> "-"
+    str_remove("[eE][+-]?\\d+\\s*$") |>                 # quita E+16
+    str_replace_all("(?<=\\d)\\s+(?=\\d)", ".") |>      # "6 2844" -> "6.2844"
+    str_replace_all(",", ".") |>                        # "6,2765" -> "6.2765"
+    str_remove_all("[^0-9.-]") |>                       # deja solo números, "." y "-"
+    na_if("")
+ 
+  signo  <- if_else(str_starts(limpio, "-"), "-", "")
+  cifras <- str_remove(limpio, "^-")
+ 
+  # Números sin punto decimal (ej. 6263955 o -75573623): se inserta el punto.
+  # Las longitudes de esta zona empiezan entre 70 y 80 (2 dígitos enteros);
+  # todo lo demás se trata como latitud (1 dígito entero).
+  sin_punto <- !str_detect(cifras, "\\.")
+  primeros_dos <- suppressWarnings(as.numeric(str_sub(cifras, 1, 2)))
+  n_enteros <- if_else(primeros_dos >= 70 & primeros_dos <= 80, 2L, 1L)
+ 
+  con_punto <- if_else(
+    sin_punto,
+    str_c(str_sub(cifras, 1, n_enteros), ".", str_sub(cifras, n_enteros + 1)),
+    cifras
+  )
+ 
+  suppressWarnings(as.numeric(str_c(signo, con_punto)))
+}
+ 
+# ---------------------------------------------------------------------------
+# 3. Función combinada: acepta GMS o decimal y devuelve grados decimales
+# ---------------------------------------------------------------------------
+a_grados_decimales <- function(texto) {
+  texto <- str_squish(as.character(texto))
+ 
+  resultado <- convertir_gms_a_decimal(texto)
+ 
+  pendientes <- is.na(resultado) & !is.na(texto)
+  resultado[pendientes] <- convertir_texto_a_decimal(texto[pendientes])
+ 
+  resultado
+}
+ 
+# ---------------------------------------------------------------------------
+# 4. Limpieza completa de las columnas longitud y latitud de un dataset
+#    - Convierte a numérico
+#    - Corrige filas donde longitud y latitud están intercambiadas
+#    - Fuerza longitud negativa (hemisferio occidental)
+#    - Marca coordenadas faltantes o fuera del área esperada (no las borra)
+#    Los límites por defecto cubren el Valle de Aburrá; ajústalos si hace falta.
+# ---------------------------------------------------------------------------
+limpiar_coordenadas <- function(datos,
+                                lat_min = 6.0,   lat_max = 6.5,
+                                lon_min = -75.8, lon_max = -75.3) {
+  datos |>
+    mutate(
+      longitud_original = longitud,
+      latitud_original  = latitud,
+ 
+      longitud_num = a_grados_decimales(longitud_original),
+      latitud_num  = a_grados_decimales(latitud_original),
+ 
+      coordenadas_intercambiadas = coalesce(
+        abs(longitud_num) < 20 & abs(latitud_num) > 60, FALSE
+      ),
+ 
+      longitud = -abs(if_else(coordenadas_intercambiadas, latitud_num, longitud_num)),
+      latitud  = if_else(coordenadas_intercambiadas, longitud_num, latitud_num),
+ 
+      dentro_de_rango = between(latitud, lat_min, lat_max) &
+                        between(longitud, lon_min, lon_max),
+      coordenada_revisar = !coalesce(dentro_de_rango, FALSE)
+    ) |>
+    select(-longitud_num, -latitud_num, -dentro_de_rango)
 }
 
-# 2. Aplicar la función a tu dataset_final
-dataset_final <- dataset_final %>%
-  mutate(
-    longitud = convertir_gms_a_decimal(longitud),
-    latitud = convertir_gms_a_decimal(latitud)
-  )
+dataset_final <- limpiar_coordenadas(dataset_final)
+dataset_final <- dataset_final %>% select(-"longitud_original", -"latitud_original", -"coordenadas_intercambiadas", -"coordenada_revisar")
+
 ```
 
-```{r}
-#| label: corrección coordenadas
 
-dataset_final <- dataset_final %>%
-  # 1. Crear columnas numéricas temporales para evaluar la condición matemática
-  mutate(
-    num_lon = as.numeric(longitud),
-    num_lat = as.numeric(latitud)
-  ) %>%
-  # 2. Aplicar la condición fila por fila
-  mutate(
-    # Si la longitud es positiva (>0) y la latitud es negativa (<0), se intercambian.
-    # De lo contrario, conservan su valor original.
-    longitud_corregida = ifelse(num_lon > 0 & num_lat < 0, latitud, longitud),
-    latitud_corregida = ifelse(num_lon > 0 & num_lat < 0, longitud, latitud)
-  ) %>%
-  # 3. Sobrescribir las columnas originales y eliminar las variables temporales
-  mutate(
-    longitud = longitud_corregida,
-    latitud = latitud_corregida
-  ) %>%
-  select(-num_lon, -num_lat, -longitud_corregida, -latitud_corregida)
-```
-
-```{r}
-#| label: eliminación coordenadas externas al valle de aburra
-
-#| label: filtro-valle-aburra
-
-dataset_final <- dataset_final %>%
-  mutate(
-    # Se fuerza la conversión a numérico para evaluar los rangos matemáticamente
-    longitud = as.numeric(longitud),
-    latitud = as.numeric(latitud)
-  ) %>%
-  filter(
-    latitud >= 6.09 & latitud <= 6.45,
-    longitud >= -75.65 & longitud <= -75.33
-  )
-```
 
 ```{r}
 #| label: estandarizacion-posicion
@@ -309,7 +343,7 @@ dataset_final <- dataset_final %>%
 ```
 
 ```{r}
-#| label: cambio de dato de piso
+#| label: cambio tipo de dato de piso
 
 dataset_final <- dataset_final %>% 
   mutate(piso=as.numeric(piso))
