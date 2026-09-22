@@ -50,6 +50,8 @@ library(Hmisc)
 library(janitor)
 library(here)
 library(purrr)
+library(sf)
+
 ```
 
 ```{r}
@@ -173,8 +175,6 @@ lista_datos <- lapply(lista_datos, estandarizar_estructura_dataset)
 ```{r}
 #| label: estandarización - tipo de dato
 
-library(dplyr)
-
 # Se convierten todas las columnas de todos los datasets a tipo texto
 lista_datos <- lapply(lista_datos, function(df) {
   # Nos aseguramos de que sea un data frame y convertimos todo a caracter
@@ -295,7 +295,6 @@ dataset_final <- limpiar_coordenadas(dataset_final)
 dataset_final <- dataset_final %>% select(-"longitud_original", -"latitud_original", -"coordenadas_intercambiadas", -"coordenada_revisar")
 
 ```
-
 
 
 ```{r}
@@ -617,14 +616,54 @@ dataset_final <- dataset_final |>
   mutate(escala_mercalli = estandarizar_escala_mercalli(escala_mercalli))
 
 ```
+<!-----------------------hasta acá va la depuración y estandarización de los dataset-------------------------------->
+
+
+
+<!-----------------------construcción del mapa graficando las coordenadas----------------------------->
+
+```{r}
+
+# Limpiar el dataset eliminando filas con NA en longitud o latitud
+dataset_limpio <- dataset_final %>%
+  filter(!is.na(longitud) & !is.na(latitud))
+
+# Convertir el dataset limpio al objeto espacial. 
+# donde X(longitud) y Y(latitud). 
+# coords, indica en que columnas están las coordenadas en el dataset
+# crs, Este es el identificador universal para el sistema WGS 84. El estándar global para coordenadas geográficas (usado por GPS's y Google Maps)
+# remove, no borra las columnas originales de longitud y latitud
+
+dataset_sf <- st_as_sf(dataset_limpio, 
+                       coords = c("longitud", "latitud"), 
+                       crs = 4326, 
+                       remove = FALSE) 
+
+# Transformar a MAGNA-SIRGAS Origen Nacional (CTM12)
+# Convierte las coordenadas geográficas en planas
+
+dataset_ctm12 <- st_transform(dataset_sf, crs = 9377)
+
+# Extraer y agregar las coordenadas calculadas en metros (X, Y)
+# Se extraen solamente las coordendas planas que se calcularon anteriormente y crea una matriz de 2 columnas, X y Y
+coordenadas_planas <- st_coordinates(dataset_ctm12)
+
+# norte = y
+# este = x
+# para poder verificar resultados con la calculadora https://origen.igac.gov.co/herramientas.html
+
+# [, X] significa, selecciona todas las filas de la columna X
+dataset_final_procesado <- dataset_limpio %>%
+  mutate(
+    este_x_metros = coordenadas_planas[, "X"],
+    norte_y_metros = coordenadas_planas[, "Y"]
+  )
+```
+
 
 ```{r}
 lista_datos
 
+
 lapply(dataset_final, unique)
-
-dataset_final %>% filter(archivo_origen="Escala_de_Mercalli_23.xlsx")
-dataset_final |>
-  filter(direccion_mv_obj_colga == "sin_clasificar")
-
 ```
