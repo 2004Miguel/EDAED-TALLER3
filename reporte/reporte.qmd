@@ -10,19 +10,29 @@ format:
     toc: true
     toc-depth: 3
     number-sections: true
-    code-fold: show
+    code-fold: true
     code-tools: true
+    code-copy: true
     df-print: paged
     embed-resources: true
 knitr:
   opts_chunk:
-    echo: true
+    echo: false
     warning: false
     message: false
     fig.align: "center"
     fig.width: 7
     fig.height: 4.5
 ---
+
+# Introducción y Contexto del Análisis
+
+El presente reporte tiene como objetivo consolidar, depurar y analizar la información recolectada sobre la percepción de un evento sísmico en la región, clasificada según la Escala de Mercalli. Inicialmente, la información fue provista en 45 archivos de Excel independientes, los cuales presentaban severas inconsistencias estructurales, variaciones ortográficas y diferencias en los tipos de datos.   Para lograr un análisis exploratorio robusto y una correcta visualización espacial, fue estrictamente necesario implementar un flujo de estandarización y limpieza profunda que permitiera fusionar todos los reportes en un único conjunto de datos coherente.   
+
+
+## Configuración del Entorno e Importación de Datos
+
+El primer paso consistió en preparar el entorno de trabajo en R, verificando e instalando automáticamente paquetes esenciales para la manipulación de datos (tidyverse), lectura de archivos (readxl) y procesamiento espacial (sf, leaflet).   Posteriormente, se leyeron iterativamente los 45 archivos Excel desde el directorio local. Se implementó una validación para advertir sobre posibles archivos faltantes en la ruta especificada antes de agruparlos en una lista en memoria.   
 
 ```{r}
 #| label: configuracion-entorno
@@ -54,9 +64,12 @@ library(sf)
 library(leaflet)
 ```
 
+# Auditoría Estructural y Corrección de Columnas
+
+Al inspeccionar los 45 archivos, se detectó que no compartían la misma estructura de columnas ni en formato de la información. Se definió un estándar estricto de 17 columnas que todos los conjuntos de datos debían cumplir para poder fusionarse.
+
 ```{r}
 #| label: estándar de columnas
-#nombre_columnas <- c("longitud", "latitud", "posicion", "actividad", "piso", "reaccion", "solo_mv_repisa", "cosas_cd_repisa", #"solo_mv_cuadros", "cuadros_cd", "revoque_rajado", "revoque_caido", "direccion_mv_obj_colga", "averia_paredes", #"averia_vigas", "observaciones", "escala_mercalli")
 
 nombre_columnas <- c(
   "longitud", "latitud", "posicion", "actividad", "piso", "reaccion", 
@@ -80,6 +93,15 @@ lista_datos <- lapply(rutas_completas, read_excel)
 names(lista_datos) <- nombres_archivos
 ```
 
+## Correcciones manuales
+
+### Archivos con columnas faltantes
+
+A los datasets 02, 05 y 37 se les añadió la columna solo_mv_cuadros. Al dataset 15 se le añadió la columna observaciones, al 13 revoque_cd y al 32 cuadros_mv. Todas estas adiciones se rellenaron con valores nulos (NA) para no alterar la veracidad de la información.   
+
+### Archivos con columnas sobrantes
+
+En el dataset 40 se eliminaron las columnas *Persona* y *Columna1*, ya que no aportaban valor al estándar definido.
 ```{r}
 #| label: adicion-eliminacion-columnas-faltantes
 
@@ -110,6 +132,14 @@ lista_datos[["Escala_de_Mercalli_32.xlsx"]] <- lista_datos[["Escala_de_Mercalli_
 # Se elimina este dataset ya que las modificaciones necesarias para convertirlo a la estructura estándar son muy engorrosas y se puede llegar a ejecutar código que no se sabe a ciencia cierta como trabaja. 
 lista_datos[["Escala_de_Mercalli_04.xlsx"]] <- NULL
 ```
+
+# Ordenamiento y estandarización programática
+
+Se desarrolló una función personalizada para corregir el orden de las columnas en casos anómalos sistemáticos. Específicamente, se solucionaron dos escenarios principales:
+
+1. Archivos donde la variable solo_mv_cuadros quedó desplazada al final de la tabla.   
+2. Archivos donde las variables de latitud y longitud estaban invertidas (ej. datasets 32 y 35).
+Finalmente, se aplicaron los nombres de columna estándar y se detuvo la ejecución preventivamente si algún archivo no cumplía con la regla de 17 campos.   
 
 ```{r}
 #| label: estandarización-nombre-de-campos
@@ -171,6 +201,9 @@ stopifnot(all(sapply(lista_datos, ncol) == cantidad_columnas_esperada))
 lista_datos <- lapply(lista_datos, estandarizar_estructura_dataset)
 ```
 
+# Fusión de Datasets
+
+Debido a que las variables numéricas y de texto variaban en su tipo de dato entre los distintos archivos de Excel, se forzó la conversión de todas las columnas a formato de texto (character) antes de unirlas. Esto previno errores de compatibilidad durante la función bind_rows, permitiendo consolidar toda la información en el dataframe maestro dataset_final.   
 
 ```{r}
 #| label: estandarización - tipo de dato
@@ -185,6 +218,22 @@ lista_datos <- lapply(lista_datos, function(df) {
 # Se unen en un solo dataset
 dataset_final <- bind_rows(lista_datos, .id = "archivo_origen")
 ```
+
+# Limpieza y Transformación de Coordenadas Geográficas
+
+La limpieza de las coordenadas fue uno de los retos más complejos debido a la entrada libre de datos por parte de los encuestados. Se implementó una función robusta con expresiones regulares (**regex**) para manejar múltiples formatos:
+
+## Conversión de GMS a Decimales
+
+Se extrajeron grados, minutos y segundos, validando el hemisferio para asignar signos negativos al Sur y al Oeste.
+
+## Corrección de decimales sucios
+
+Se limpiaron caracteres extraños, notación científica dañada, y separadores de miles/decimales erróneos (comas por puntos).
+
+## Control de calidad espacial
+
+Se identificaron y corrigieron automáticamente las filas donde la latitud y la longitud seguían intercambiadas mediante lógica de rangos geográficos. Además, se forzó el signo negativo en la longitud para garantizar su ubicación en el hemisferio occidental, y se eliminaron las coordenadas nulas (NA).
 
 ```{r}
 #| label: conversión a coordenadas decimales
@@ -295,6 +344,22 @@ dataset_final <- limpiar_coordenadas(dataset_final)
 dataset_final <- dataset_final %>% select(-"longitud_original", -"latitud_original", -"coordenadas_intercambiadas", -"coordenada_revisar")
 
 ```
+
+# Normalización de Variables Categóricas y de Texto
+
+Para permitir realizar agrupaciones estadísticas, se estandarizaron las respuestas de texto libre mediante un proceso exhaustivo de minúsculas, eliminación de tildes y agrupación de sinónimos:  
+
+## Posición, Actividad y Reacción
+
+Se unificaron variaciones ortográficas y de género (ej. "acostado" y "acostada"). En las reacciones, se agruparon descripciones largas en categorías claras como "evacuó corriendo", "evacuó caminando", o "se quedó en el sitio" basándose en palabras clave.
+
+## Variables con valor Sí/No
+
+Se limpiaron respuestas ambiguas como "sí, no" o "no sé" convirtiéndolas estrictamente a "si", "no", o NA.   
+
+## Dirección del movimiento y Averías
+
+Se clasificaron las direcciones en los 8 puntos cardinales o ejes principales **("norte-sur", "este-oeste")**. Los daños en paredes y vigas se categorizaron en **niveles ordinales explícitos** (ej. "no_hubo_danos", "danos_leves", "colapso_o_caida") ignorando el texto de instrucciones del formulario que fue pegado por error por algunos usuarios. Cabe resaltar que no se usó el caracter "ñ" ni acentos para no romper la compatibilidad entre sistemas. 
 
 
 ```{r}
@@ -570,6 +635,10 @@ dataset_final <- dataset_final |>
   mutate(averia_vigas = estandarizar_averia_vigas(averia_vigas))
 ```
 
+# Estandarización de la Escala de Mercalli
+
+La percepción del sismo requería estar en números romanos válidos. Se limpió el texto, se corrigieron errores comunes de digitación (como usar la letra "L" en lugar de la "I") y se validaron matemáticamente los rangos reportados (ej. "IV-V") para asegurar que solo se mantuvieran grados existentes en la escala oficial de Mercalli (I a XII)
+
 ```{r}
 #| label: estandarización-esacala_mercalli
 
@@ -619,6 +688,16 @@ dataset_final <- dataset_final |>
 <!-----------------------hasta acá va la depuración y estandarización de los dataset-------------------------------->
 
 
+# Procesamiento Espacial y Coordenadas Planas (MAGNA-SIRGAS)
+
+Con las coordenadas geográficas (Latitud/Longitud) inicialmente en formato decimal **WGS84** depuradas, se procedió a graficar las coordenadas planas
+
+1. Se convirtió el conjunto de datos en un objeto espacial *(sf)* asignándole el Sistema de Referencia de Coordenadas estándar WGS 84 (CRS 4326).
+
+2. Para facilitar el análisis métrico y la representación cartográfica en Colombia, se reproyectaron las coordenadas al sistema MAGNA-SIRGAS Origen Nacional **(CTM12 - CRS 9377)**
+
+3. Se extrajeron las nuevas coordenadas cartesianas resultantes, almacenándolas como este_x_metros y norte_y_metros para poder graficarlas tradicionalmente.
+
 
 <!-----------------------construcción del mapa graficando las coordenadas----------------------------->
 
@@ -660,6 +739,19 @@ dataset_final_procesado <- dataset_limpio %>%
   )
 ```
 
+
+# Visualización Espacial (Diagramas de Dispersión)
+
+Finalmente, se generaron diagramas de dispersión utilizando las coordenadas planas (Este vs. Norte) para mapear espacialmente las observaciones de los datasets.
+
+## Gráfico General
+
+El primer diagrama muestra la totalidad de los datos, revelando la existencia de puntos atípicos (outliers) ubicados geográficamente muy lejos del clúster principal.
+
+## Zoom Analítico
+
+ Para contrarrestar la distorsión visual de los valores extremos, se implementó un segundo gráfico aplicando límites estrictos en los ejes X y Y mediante la capa coord_fixed(). Esto garantizó mantener una proporción métrica 1:1 y permitió enfocar la visualización exclusivamente sobre el área metropolitana del Valle de Aburrá, coloreando cada punto según su intensidad reportada en la Escala de Mercalli.   
+
 ```{r}
 #| label: dispersion-coordenadas-planas
 #| fig-cap: "Diagrama de dispersión de los reportes usando coordenadas planas (CTM12)"
@@ -687,14 +779,4 @@ labs(
   title = "Distribución espacial de los reportes",
   subtitle = "Sistema de coordenadas: MAGNA-SIRGAS Origen Nacional"
 )
-```
-
-
-
-
-```{r}
-lista_datos
-
-
-lapply(dataset_final, unique)
 ```
