@@ -1,3 +1,4 @@
 snowflake.log
 *.Rproj
 .~lock*
+*.html

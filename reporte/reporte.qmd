@@ -1,7 +1,7 @@
 ---
-title: "Taller 2: Auditoría Exploratoria y Perfil del Curso"
+title: "Taller 3: Análisis exploratorio de la escala de Mercalli"
 subtitle: " Curso: Estadística Descriptiva y Análisis Exploratorio de Datos (3006927)"
-author: "Miguel Anjel Salazar Jaramillo"
+author: "Miguel Anjel Salazar Jaramillo - C.C: 1020102865 - email: misalazarj@unal.edu.co"
 lang: es
 date: today
 format:
@@ -51,7 +51,7 @@ library(janitor)
 library(here)
 library(purrr)
 library(sf)
-
+library(leaflet)
 ```
 
 ```{r}
@@ -68,7 +68,7 @@ nombre_columnas <- c(
 
 ```{r}
 #| label: importación-datos
-carpeta <- "datos"
+carpeta <- "../datos"
 nombres_archivos <- sprintf("Escala_de_Mercalli_%02d.xlsx", 1:45)
 rutas_completas  <- file.path(carpeta, nombres_archivos)
 
@@ -659,6 +659,37 @@ dataset_final_procesado <- dataset_limpio %>%
     norte_y_metros = coordenadas_planas[, "Y"]
   )
 ```
+
+```{r}
+#| label: dispersion-coordenadas-planas
+#| fig-cap: "Diagrama de dispersión de los reportes usando coordenadas planas (CTM12)"
+
+ggplot(dataset_final_procesado, aes(x = este_x_metros, y = norte_y_metros, color=escala_mercalli)) +
+  geom_point(alpha = 0.6, size = 2.5) +
+  theme_minimal() +
+  labs(
+    x = "Este en metros",
+    y = "Norte en metros",
+    title = "Distribución espacial de los reportes",
+    subtitle = "Sistema de coordenadas: MAGNA-SIRGAS Origen Nacional"
+  )
+
+ggplot(dataset_final_procesado, aes(x = este_x_metros, y = norte_y_metros, color=escala_mercalli)) +
+geom_point(alpha = 0.6, size = 2.5) +
+coord_fixed(
+  xlim = c(4700000, 4750000), 
+  ylim = c(2230000, 2280000)
+) +
+theme_minimal() +
+labs(
+  x = "Este en metros",
+  y = "Norte en metros",
+  title = "Distribución espacial de los reportes",
+  subtitle = "Sistema de coordenadas: MAGNA-SIRGAS Origen Nacional"
+)
+```
+
+
 
 
 ```{r}
