@@ -884,3 +884,137 @@ ggplot(dataset_pregunta, aes(x = grupo_actividad, fill = escala_mercalli)) +
   )
 ```
 
+## En que rango de pisos, tiende a rajarse el revoque ? 
+
+Para esta pregunta se usa la columna `revoque_rajado` (ya estandarizada a "si"/"no"/NA) y la columna `piso` (numérica). Primero se filtran los reportes donde sí se rajó el revoque y se grafica un diagrama de barras de `piso` para ver en qué pisos se concentran esos reportes. Algunos registros tienen el piso "0", este se va a suponer que hace referencia a un sótano
+
+
+```{r}
+#| label: pregunta-revoque-preparacion
+
+# Nos quedamos con los reportes donde sí se rajó el revoque y el piso es un valor válido
+dataset_revoque <- dataset_final_procesado %>%
+  filter(revoque_rajado == "si", !is.na(piso))
+```
+
+
+Según el diagrama de barras, se puede observar que hay una alta concentración de revoque rajado entre los pisos 0 al 3. Hay que tener presente que este gráfico se construyó teniendo en cuenta unicamente los registros que marcaron "sí" para la columna de `revoque_rajado` 
+
+```{r}
+#| label: pregunta-revoque-histograma
+#| fig-cap: "Distribución de pisos donde se reportó revoque rajado"
+
+rangos_piso <- c(-Inf, 1, 3, 5, 10, Inf)
+etiquetas_rango_piso <- c("0-1", "2-3", "4-5", "6-10", "11+")
+
+dataset_revoque <- dataset_revoque %>%
+  mutate(
+    rango_piso = cut(
+      piso,
+      breaks = rangos_piso,
+      labels = etiquetas_rango_piso,
+      right = TRUE
+    )
+  )
+
+ggplot(dataset_revoque, aes(x = rango_piso)) +
+  geom_bar(fill = "#fc8d62", color = "white") +
+  theme_minimal() +
+  labs(
+    x = "Rango de piso",
+    y = "Número de reportes con revoque rajado",
+    title = "¿En qué pisos se reportó revoque rajado?"
+  )
+```
+
+
+### Tasa de rajado por rango de piso
+
+El diagrama de barras anterior muestra dónde se concentran los reportes de "sí se rajó", pero no dice si esa concentración se debe a que ese rango de pisos tiene más *tendencia* a rajarse, o simplemente a que ahí hay más reportes en total (por ejemplo, si la mayoría de encuestados vive en pisos bajos). Para aislar la tendencia real, se calcula la proporción de "sí" sobre el total de reportes (sí + no) en cada rango de piso:
+
+```{r}
+#| label: pregunta-revoque-tasa
+#| fig-cap: "Proporción de reportes con revoque rajado, por rango de piso"
+
+dataset_final_procesado %>%
+  filter(!is.na(piso), revoque_rajado %in% c("si", "no")) %>%
+  mutate(
+    rango_piso = cut(
+      piso,
+      breaks = c(-Inf, 1, 3, 5, 10, Inf),
+      labels = c("0-1", "2-3", "4-5", "6-10", "11+"),
+      right = TRUE
+    )
+  ) %>%
+  group_by(rango_piso) %>%
+  summarise(
+    n_reportes = n(),
+    n_rajado = sum(revoque_rajado == "si"),
+    proporcion_rajado = n_rajado / n_reportes
+  ) %>%
+  ggplot(aes(x = rango_piso, y = proporcion_rajado)) +
+  geom_col(fill = "#66c2a5") +
+  geom_text(aes(label = scales::percent(proporcion_rajado, accuracy = 1)), vjust = -0.4) +
+  theme_minimal() +
+  labs(
+    x = "Rango de piso",
+    y = "Proporción de reportes con revoque rajado",
+    title = "Tasa de revoque rajado según rango de piso"
+  )
+```
+
+
+### Tabla de frecuencia
+
+La tabla siguiente resume los mismos datos de los dos gráficos anteriores en un solo lugar: frecuencia absoluta de "sí" y "no" por rango de piso, el total de reportes, la frecuencia relativa (qué porcentaje de *todos* los reportes cae en ese rango) y la tasa de rajado (el mismo valor del gráfico de proporciones). Es útil, entre otras cosas, para ver el tamaño de muestra detrás de cada barra del gráfico de tasa.
+
+```{r}
+#| label: pregunta-revoque-tabla-frecuencia
+
+tabla_frecuencia_revoque <- dataset_final_procesado %>%
+  filter(!is.na(piso), revoque_rajado %in% c("si", "no")) %>%
+  mutate(
+    # Se reutilizan los mismos rangos definidos en el histograma
+    rango_piso = cut(
+      piso,
+      breaks = rangos_piso,
+      labels = etiquetas_rango_piso,
+      right = TRUE
+    )
+  ) %>%
+  count(rango_piso, revoque_rajado) %>%
+  # Nos aseguramos de que "si" y "no" aparezcan en todos los rangos, incluso con 0 casos
+  complete(rango_piso, revoque_rajado, fill = list(n = 0)) %>%
+  pivot_wider(names_from = revoque_rajado, values_from = n, values_fill = 0) %>%
+  rename(frecuencia_si = si, frecuencia_no = no) %>%
+  mutate(frecuencia_total = frecuencia_si + frecuencia_no)
+
+gran_total <- sum(tabla_frecuencia_revoque$frecuencia_total)
+
+tabla_frecuencia_revoque <- tabla_frecuencia_revoque %>%
+  mutate(
+    frecuencia_relativa = frecuencia_total / gran_total,
+    tasa_rajado = frecuencia_si / frecuencia_total
+  )
+
+# Fila de totales al final de la tabla
+fila_total <- tibble(
+  rango_piso = "Total",
+  frecuencia_si = sum(tabla_frecuencia_revoque$frecuencia_si),
+  frecuencia_no = sum(tabla_frecuencia_revoque$frecuencia_no),
+  frecuencia_total = gran_total,
+  frecuencia_relativa = 1,
+  tasa_rajado = sum(tabla_frecuencia_revoque$frecuencia_si) / gran_total
+)
+
+bind_rows(tabla_frecuencia_revoque, fila_total) %>%
+  kable(
+    col.names = c("Rango de piso", "Sí se rajó", "No se rajó", "Total", "Frec. relativa", "Tasa de rajado"),
+    digits = c(0, 0, 0, 0, 3, 3),
+    caption = "Tabla de frecuencia: revoque rajado según rango de piso"
+  )
+```
+
+
+En conclusión, el primer diagráma de barras indica en qué pisos hubo *más reportes* de revoque rajado en términos absolutos (solo sí); el gráfico de tasa indica en qué rango de pisos el revoque tiende *proporcionalmente* más a rajarse. Esto quiere decir que, el rango de pisos donde teiende a rajarse el revoque es del **4 al 10**. 
+
