@@ -3,7 +3,7 @@ title: "Taller 3: Análisis exploratorio de la escala de Mercalli"
 subtitle: " Curso: Estadística Descriptiva y Análisis Exploratorio de Datos (3006927)"
 author: "Miguel Anjel Salazar Jaramillo - C.C: 1020102865 - email: misalazarj@unal.edu.co"
 lang: es
-date: today
+date: "last-modified"
 format:
   html:
     theme: cosmo
@@ -1017,4 +1017,10 @@ bind_rows(tabla_frecuencia_revoque, fila_total) %>%
 
 
 En conclusión, el primer diagráma de barras indica en qué pisos hubo *más reportes* de revoque rajado en términos absolutos (solo sí); el gráfico de tasa indica en qué rango de pisos el revoque tiende *proporcionalmente* más a rajarse. Esto quiere decir que, el rango de pisos donde teiende a rajarse el revoque es del **4 al 10**. 
+
+# Anéxos
+
+## Conversión de coordenadas
+
+se uso la página https://origen.igac.gov.co/herramientas.html para comprobar la conversión a coordenadas planas y como documentación
 
