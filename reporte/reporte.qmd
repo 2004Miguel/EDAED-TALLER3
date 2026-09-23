@@ -81,7 +81,7 @@ nombre_columnas <- c(
 
 ```{r}
 #| label: importación-datos
-carpeta <- "../datos"
+carpeta <- here("datos")
 nombres_archivos <- sprintf("Escala_de_Mercalli_%02d.xlsx", 1:45)
 rutas_completas  <- file.path(carpeta, nombres_archivos)
 
