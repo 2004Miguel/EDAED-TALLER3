@@ -748,10 +748,6 @@ Finalmente, se generaron diagramas de dispersión utilizando las coordenadas pla
 
 El primer diagrama muestra la totalidad de los datos, revelando la existencia de puntos atípicos (outliers) ubicados geográficamente muy lejos del clúster principal.
 
-## Zoom Analítico
-
- Para contrarrestar la distorsión visual de los valores extremos, se implementó un segundo gráfico aplicando límites estrictos en los ejes X y Y mediante la capa coord_fixed(). Esto garantizó mantener una proporción métrica 1:1 y permitió enfocar la visualización exclusivamente sobre el área metropolitana del Valle de Aburrá, coloreando cada punto según su intensidad reportada en la Escala de Mercalli.   
-
 ```{r}
 #| label: dispersion-coordenadas-planas
 #| fig-cap: "Diagrama de dispersión de los reportes usando coordenadas planas (CTM12)"
@@ -765,6 +761,14 @@ ggplot(dataset_final_procesado, aes(x = este_x_metros, y = norte_y_metros, color
     title = "Distribución espacial de los reportes",
     subtitle = "Sistema de coordenadas: MAGNA-SIRGAS Origen Nacional"
   )
+```
+
+## Zoom Analítico
+
+ Para contrarrestar la distorsión visual de los valores extremos, se implementó un segundo gráfico aplicando límites estrictos en los ejes X y Y mediante la capa coord_fixed(). Esto garantizó mantener una proporción métrica 1:1 y permitió enfocar la visualización exclusivamente sobre el área metropolitana del Valle de Aburrá, coloreando cada punto según su intensidad reportada en la Escala de Mercalli.   
+
+```{r}
+#| label: zoom diagráma de disperción
 
 ggplot(dataset_final_procesado, aes(x = este_x_metros, y = norte_y_metros, color=escala_mercalli)) +
 geom_point(alpha = 0.6, size = 2.5) +
@@ -780,3 +784,103 @@ labs(
   subtitle = "Sistema de coordenadas: MAGNA-SIRGAS Origen Nacional"
 )
 ```
+
+<!----------------Hasta acá la construcción de los mapas----------------------------------->
+
+# Planteamiento de preguntas
+
+## Las personas que no estaban fisicamente activas (durmiendo o descansando), percibieron el sismo más fuerte que los que sí estaban fisicamente activos (trabajando, estudiando, caminando, etc) ? tomando como referencia la escala de Mercalli
+
+Para responder esta pregunta se construyen dos grupos a partir de la columna `actividad`, y se convierte la `escala_mercalli` (texto en números romanos, a veces como rango, ej. "IV-V") a un valor numérico entre 1 y 12 para poder comparar los grupos con estadística descriptiva.
+
+- **Inactivo:** personas que reportaron estar `durmiendo` o `descansando`.
+- **Activo:** cualquier otra actividad válida reportada (`trabajando`, `estudiando`, `caminando`, etc.).
+
+```{r}
+#| label: pregunta-preparacion-grupos
+
+# Se crea la variable "grupo_actividad" a partir de la columna "actividad":
+#    - "Inactivo": durmiendo o descansando.
+#    - "Activo": cualquier otra actividad válida reportada.
+#    Los NA y los valores sin clasificar quedan por fuera de la comparación.
+dataset_pregunta <- dataset_final_procesado %>%
+  mutate(
+    grupo_actividad = case_when(
+      actividad %in% c("durmiendo", "descansando") ~ "Inactivo",
+      !is.na(actividad) & actividad != "sin_clasificar" ~ "Activo",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Se convierte la escala de Mercalli (números romanos, o rangos como "IV-V")
+#    a un valor numérico entre 1 y 12, para poder comparar los dos grupos.
+#    Si es un rango, se usa el promedio de sus dos extremos (ej. "IV-V" -> 4.5).
+convertir_mercalli_a_numero <- function(escala) {
+  partes <- str_split(escala, "-")
+  sapply(partes, function(p) {
+    valores <- match(p, niveles_mercalli)
+    if (length(p) == 0 || anyNA(valores)) return(NA_real_)
+    mean(valores)
+  })
+}
+
+dataset_pregunta <- dataset_pregunta %>%
+  mutate(escala_mercalli_num = convertir_mercalli_a_numero(escala_mercalli)) %>%
+  filter(!is.na(grupo_actividad), !is.na(escala_mercalli_num))
+```
+
+### Estadística descriptiva
+
+Viendo las medidas descriptivas, especialmente el promedio, se puede observar que independientemente de lo que se estuviera haciendo al momento del sismo, este tuvo una **percepción muy parecida**. La diferencia es de apenas 0.22 en el promedio. También es importante observar que la muestra de personas **activas** e **inactivas** no tienen tanta diferencia por lo que se puede decir que este análisis evalua 2 variables en igualdad de condiciones cuando se trata de cantidad. Para finalizar, la **desviación estándar** indica que los datos no están tan alejados del promedio, solo por 1.4 y 1.7 para las personas *activas* e *inactivas* respectivamente lo que podría indicar que se podría confiar en el promedio. 
+
+```{r}
+#| label: pregunta-estadistica-descriptiva
+
+dataset_pregunta %>%
+  group_by(grupo_actividad) %>%
+  summarise(
+    n = n(),
+    mercalli_promedio = mean(escala_mercalli_num),
+    mercalli_mediana = median(escala_mercalli_num),
+    desviacion_estandar = sd(escala_mercalli_num)
+  ) %>%
+  kable(digits = 2, caption = "Intensidad de Mercalli percibida según nivel de actividad física")
+```
+
+### Comparación visual
+
+Se usa este boxplot para graficar la relación entre la actividad y percepción del sismo, el cual está indicando que **no hay una diferencia estadística significativa**, de hecho, podría sugerir lo contrario a lo que plantea la pregunta ya que las personas en el grupo Activo tienen una persepción más alta que los Inactivos, esto se evidencia al comparar sus medianas y el quartil 3, se observa que están más arriba que los Inactivos. Además, hay bastante solapamiento entre las 2 cajas, lo que sugiere que **No se puede diferenciar en promedio, cual grupo de personas percibió el sismo más fuerte, si el Activo o Inactivo**
+
+```{r}
+#| label: pregunta-grafico-boxplot
+#| fig-cap: "Distribución de la intensidad percibida (Mercalli) según actividad física"
+
+ggplot(dataset_pregunta, aes(x = grupo_actividad, y = escala_mercalli_num, fill = grupo_actividad)) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.5) +
+  theme_minimal() +
+  labs(
+    x = NULL,
+    y = "Escala de Mercalli",
+    title = "Intensidad percibida según nivel de actividad física",
+    fill = NULL
+  ) +
+  theme(legend.position = "none")
+```
+
+Para finalizar, se presenta un gráfico de proporciones para visualizar que los 2 grupos tienen percepciones **muy parecidas** variando solo en algunos casos. 
+
+```{r}
+#| label: pregunta-grafico-proporciones
+#| fig-cap: "Proporción de cada grado de Mercalli según actividad física"
+
+ggplot(dataset_pregunta, aes(x = grupo_actividad, fill = escala_mercalli)) +
+  geom_bar(position = "fill") +
+  theme_minimal() +
+  labs(
+    x = NULL,
+    y = "Proporción",
+    fill = "Grado Mercalli",
+    title = "Distribución de grados de Mercalli según actividad física"
+  )
+```
+
